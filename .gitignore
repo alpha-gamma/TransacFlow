@@ -1,0 +1,50 @@
+# Google Apps Script
+.clasp.json
+.claspignore
+
+# User-specific configuration
+Config.gs.local
+*.local.gs
+
+# Logs
+*.log
+npm-debug.log*
+
+# Dependencies
+node_modules/
+package-lock.json
+
+# IDEs
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Temporary files
+*.tmp
+*.bak
+*.backup
+
+# Test data
+test-emails/
+sample-data/
+
+# Documentation builds
+docs/.build/
+docs/_site/
+
+# Personal notes
+NOTES.md
+TODO.md
+.private/
+
+# Private business documents (SaaS planning, strategies, etc.)
+private-docs/
+PRIVATE_*.md
+*.private.md
+
