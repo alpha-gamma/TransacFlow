@@ -14,6 +14,8 @@
  * - setupAutomation()           → Initial setup & create triggers
  * - processTransactionEmails()  → Manual run (also auto-runs every 10 min)
  * - refreshAllNicknames()       → Update all transactions with latest nicknames
+ * - updateDashboard()           → Create/refresh analytics dashboard
+ * - addCategoriesToTransactions() → Add categories to existing transactions
  * 
  * 🧪 TESTING FUNCTIONS:
  * - test_SingleEmail()          → Test parsing of one email
@@ -23,13 +25,19 @@
  * - debug_SearchQuery()         → Show current search query
  * - debug_EmailSearch()         → Diagnose email search issues
  * - debug_ShowRawEmail()        → Show raw email content for pattern debugging
+ * - debug_DashboardData()       → Troubleshoot dashboard zero values
  * 
  * ℹ️ ACCOUNT NICKNAMES:
  * - Managed in "Account Nicknames" sheet (auto-created)
  * - Edit "Custom Nickname" column to customize names
  * - Changes automatically update all transactions!
  * 
- * @version 1.1.0
+ * 📊 ANALYTICS DASHBOARD:
+ * - Run updateDashboard() to create comprehensive analytics
+ * - Includes: Monthly summaries, top merchants, category breakdown, trends, budget tracking
+ * - Categories are auto-assigned based on merchant names
+ * 
+ * @version 1.2.0
  * @author Aakash Goel
  * @license MIT
  * @repository https://github.com/alpha-gamma/transacflow
@@ -615,7 +623,7 @@ class SheetService {
   }
   
   setColumnWidths(sheet) {
-    const widths = [100, 80, 100, 150, 180, 300, 150, 250];
+    const widths = [100, 80, 100, 150, 180, 300, 150, 150, 250];
     widths.forEach((width, index) => {
       sheet.setColumnWidth(index + 1, width);
     });
@@ -628,7 +636,7 @@ class SheetService {
       const lastRow = this.sheet.getLastRow();
       if (lastRow <= 1) return new Set();
       
-      const emailIds = this.sheet.getRange(2, 8, lastRow - 1, 1).getValues();
+      const emailIds = this.sheet.getRange(2, 9, lastRow - 1, 1).getValues();
       return new Set(emailIds.map(row => row[0]).filter(id => id));
     } catch (error) {
       this.logger.error(`Error getting processed email IDs: ${error.message}`);
@@ -663,6 +671,7 @@ class SheetService {
     const accountNickname = this.nicknameManager 
       ? this.nicknameManager.getAccountNickname(transaction.account || '', transaction.source || '')
       : '';
+    const category = CategoryMapper.categorize(transaction.merchant || '');
     
     return [
       Utilities.formatDate(date, timezone, 'dd-MMM-yyyy'),
@@ -671,6 +680,7 @@ class SheetService {
       transaction.account || 'N/A',
       accountNickname || '',
       transaction.merchant || 'N/A',
+      category,
       transaction.source || 'Unknown',
       emailId
     ];
@@ -1009,6 +1019,19 @@ function processTransactionEmails() {
     logger.success(`Processed ${emailsProcessed} emails`);
     logger.success(`Added ${newTransactions} new transactions in chronological order`);
     
+    // Auto-refresh dashboard if enabled and new transactions were added
+    if (newTransactions > 0 && typeof AUTO_UPDATE_DASHBOARD !== 'undefined' && AUTO_UPDATE_DASHBOARD) {
+      try {
+        logger.info('Auto-refreshing dashboard...');
+        const spreadsheet = SpreadsheetApp.openById(SHEET_ID);
+        const dashboardManager = new DashboardManager(spreadsheet, logger);
+        dashboardManager.createCategoryDataSheet();
+        logger.success('Dashboard data refreshed');
+      } catch (dashError) {
+        logger.warn(`Dashboard auto-refresh failed: ${dashError.message}`);
+      }
+    }
+    
     return { success: true, totalEmails: emailsProcessed, newTransactions: newTransactions };
     
   } catch (error) {
@@ -1205,7 +1228,7 @@ class NicknameManager {
       if (lastRow <= 1) return 0;
       
       // Get all data
-      const dataRange = transSheet.getRange(2, 1, lastRow - 1, 8);
+      const dataRange = transSheet.getRange(2, 1, lastRow - 1, 9);
       const data = dataRange.getValues();
       
       let updatedCount = 0;
@@ -1415,15 +1438,1079 @@ function onNicknameEdit(e) {
     const count = nicknameManager.updateTransactionsWithNickname(accountNumber, finalNickname);
     
     if (count > 0) {
-      SpreadsheetApp.getActiveSpreadsheet().toast(
-        `Updated ${count} transaction(s) with new nickname for ${accountNumber}`,
-        'Nickname Updated',
-        5
-      );
+      try {
+        const activeSpreadsheet = SpreadsheetApp.getActiveSpreadsheet();
+        if (activeSpreadsheet) {
+          activeSpreadsheet.toast(
+            `Updated ${count} transaction(s) with new nickname for ${accountNumber}`,
+            'Nickname Updated',
+            5
+          );
+        }
+      } catch (e) {
+        // Ignore toast errors
+      }
     }
     
   } catch (error) {
     console.error(`Error in onNicknameEdit: ${error.message}`);
+  }
+}
+
+// ==================== DASHBOARD & ANALYTICS ====================
+
+/**
+ * CategoryMapper - Intelligent category classification for transactions
+ */
+class CategoryMapper {
+  static getCategoryRules() {
+    return {
+      'Food & Dining': ['swiggy', 'zomato', 'uber eats', 'dominos', 'pizza', 'mcdonald', 'kfc', 'subway', 'starbucks', 'cafe', 'restaurant', 'food', 'dunkin', 'burger king'],
+      'Transportation': ['uber', 'ola', 'rapido', 'metro', 'irctc', 'makemytrip', 'goibibo', 'redbus', 'petrol', 'fuel', 'parking', 'fastag'],
+      'Shopping': ['amazon', 'flipkart', 'myntra', 'ajio', 'meesho', 'nykaa', 'shop', 'store', 'mall', 'retail'],
+      'Groceries': ['bigbasket', 'grofers', 'blinkit', 'zepto', 'dunzo', 'jiomart', 'dmart', 'grocery', 'supermarket'],
+      'Entertainment': ['netflix', 'amazon prime', 'hotstar', 'spotify', 'youtube', 'bookmyshow', 'paytm insider', 'gaana', 'apple music', 'movie', 'cinema'],
+      'Bills & Utilities': ['electricity', 'water', 'gas', 'broadband', 'internet', 'mobile', 'recharge', 'postpaid', 'airtel', 'jio', 'vodafone', 'bill payment'],
+      'Health & Fitness': ['pharmacy', 'apollo', 'medplus', 'practo', 'cult fit', 'gym', 'hospital', 'doctor', 'medical', 'health'],
+      'Education': ['udemy', 'coursera', 'byju', 'unacademy', 'school', 'tuition', 'course', 'book'],
+      'Insurance': ['policy', 'insurance', 'premium', 'lic'],
+      'Investments': ['mutual fund', 'sip', 'stocks', 'zerodha', 'groww', 'upstox'],
+      'Transfer': ['upi', 'neft', 'imps', 'fund transfer', 'paytm wallet', 'phonepe'],
+      'Other': []
+    };
+  }
+  
+  static categorize(merchant) {
+    if (!merchant) return 'Uncategorized';
+    
+    const merchantLower = merchant.toLowerCase();
+    const rules = this.getCategoryRules();
+    
+    for (const [category, keywords] of Object.entries(rules)) {
+      for (const keyword of keywords) {
+        if (merchantLower.includes(keyword)) {
+          return category;
+        }
+      }
+    }
+    
+    return 'Other';
+  }
+}
+
+/**
+ * DashboardManager - Creates and updates analytics dashboard
+ */
+class DashboardManager {
+  constructor(spreadsheet, logger) {
+    this.spreadsheet = spreadsheet;
+    this.logger = logger;
+    this.dashboardName = 'Dashboard';
+  }
+  
+  createOrUpdateDashboard() {
+    try {
+      this.logger.section('Creating/Updating Dashboard');
+      
+      let dashboard = this.spreadsheet.getSheetByName(this.dashboardName);
+      let previousMonth = null;
+      
+      if (!dashboard) {
+        this.logger.info('Creating new Dashboard sheet...');
+        dashboard = this.spreadsheet.insertSheet(this.dashboardName, 0); // Insert at first position
+      } else {
+        this.logger.info('Updating existing Dashboard...');
+        // Save the selected month before clearing
+        try {
+          previousMonth = dashboard.getRange('B2').getValue();
+        } catch (e) {
+          // Ignore if can't get previous value
+        }
+        dashboard.clear();
+      }
+      
+      // Create dashboard sections dynamically positioned
+      let currentRow = 1;
+      
+      currentRow = this.createHeader(dashboard, previousMonth, currentRow);
+      currentRow = this.createMonthlySummary(dashboard, currentRow);
+      currentRow = this.createTopMerchants(dashboard, currentRow);
+      currentRow = this.createAccountWiseSpending(dashboard, currentRow);
+      currentRow = this.createCategoryBreakdown(dashboard, currentRow);
+      currentRow = this.createTrendAnalysis(dashboard, currentRow);
+      currentRow = this.createBudgetComparison(dashboard, currentRow);
+      
+      // Freeze first 2 rows (header + month selector)
+      dashboard.setFrozenRows(2);
+      
+      // Auto-resize columns
+      dashboard.autoResizeColumns(1, 8);
+      
+      this.logger.success('Dashboard created successfully!');
+      return dashboard;
+      
+    } catch (error) {
+      this.logger.error(`Error creating dashboard: ${error.message}`);
+      throw error;
+    }
+  }
+  
+  createHeader(sheet, previousMonth = null, startRow = 1) {
+    // Title
+    sheet.getRange(`A${startRow}:H${startRow}`).merge();
+    sheet.getRange(`A${startRow}`).setValue('📊 TransacFlow Analytics Dashboard');
+    sheet.getRange(`A${startRow}`).setFontSize(18).setFontWeight('bold').setHorizontalAlignment('center');
+    sheet.getRange(`A${startRow}`).setBackground('#4285f4').setFontColor('#ffffff');
+    
+    // Month Selector Row
+    const row2 = startRow + 1;
+    sheet.getRange(`A${row2}`).setValue('Select Month:');
+    sheet.getRange(`A${row2}`).setFontWeight('bold').setHorizontalAlignment('right');
+    sheet.getRange(`A${row2}`).setBackground('#e8f0fe');
+    
+    // Create dropdown first, then set default value
+    this.createMonthDropdown(sheet, `B${row2}`, previousMonth);
+    sheet.getRange(`B${row2}`).setBackground('#ffffff').setHorizontalAlignment('left');
+    
+    // Last updated
+    sheet.getRange(`C${row2}:H${row2}`).merge();
+    sheet.getRange(`C${row2}`).setValue('Last Updated: ' + new Date().toLocaleString());
+    sheet.getRange(`C${row2}`).setFontSize(10).setFontStyle('italic').setHorizontalAlignment('center');
+    sheet.getRange(`C${row2}`).setBackground('#e8f0fe');
+    
+    sheet.setRowHeight(startRow, 40);
+    sheet.setRowHeight(row2, 30);
+    
+    // Return next available row (leave 1 row gap)
+    return row2 + 2;
+  }
+  
+  createMonthDropdown(sheet, cellAddress, previousMonth = null) {
+    // Get unique months from actual transactions
+    const months = this.getAvailableMonths();
+    
+    // Fallback to current month if no transactions exist
+    if (months.length === 0) {
+      const now = new Date();
+      const year = now.getFullYear();
+      const month = String(now.getMonth() + 1).padStart(2, '0');
+      months.push(`${year}-${month}-01`);
+    }
+    
+    const cell = sheet.getRange(cellAddress);
+    
+    // Set default value FIRST (before validation)
+    let defaultMonth = months[0]; // Most recent month
+    
+    // Convert previousMonth to string format if it's a Date object
+    if (previousMonth) {
+      let previousMonthStr;
+      if (previousMonth instanceof Date) {
+        const year = previousMonth.getFullYear();
+        const month = String(previousMonth.getMonth() + 1).padStart(2, '0');
+        previousMonthStr = `${year}-${month}-01`;
+      } else {
+        previousMonthStr = String(previousMonth);
+      }
+      
+      // Only use previousMonth if it's in the valid list
+      if (months.includes(previousMonthStr)) {
+        defaultMonth = previousMonthStr;
+      }
+    }
+    
+    cell.setValue(defaultMonth);
+    
+    // Then set the data validation rule
+    const rule = SpreadsheetApp.newDataValidation()
+      .requireValueInList(months, true)
+      .setAllowInvalid(false)
+      .build();
+    cell.setDataValidation(rule);
+  }
+  
+  getAvailableMonths() {
+    try {
+      const transSheet = this.spreadsheet.getSheetByName(SHEET_NAME);
+      if (!transSheet || transSheet.getLastRow() <= 1) {
+        return [];
+      }
+      
+      // Get all transaction dates (column A)
+      const lastRow = transSheet.getLastRow();
+      const dates = transSheet.getRange(2, 1, lastRow - 1, 1).getValues();
+      
+      // Extract unique month-year combinations
+      const monthSet = new Set();
+      dates.forEach(row => {
+        const dateValue = row[0];
+        if (dateValue) {
+          try {
+            let transDate;
+            if (dateValue instanceof Date) {
+              transDate = dateValue;
+            } else if (typeof dateValue === 'string' && dateValue.trim() !== '') {
+              transDate = new Date(dateValue);
+            }
+            
+            if (transDate && !isNaN(transDate.getTime())) {
+              const year = transDate.getFullYear();
+              const month = String(transDate.getMonth() + 1).padStart(2, '0');
+              monthSet.add(`${year}-${month}-01`);
+            }
+          } catch (e) {
+            // Skip invalid dates
+          }
+        }
+      });
+      
+      // Convert to array and sort in descending order (most recent first)
+      const months = Array.from(monthSet).sort((a, b) => {
+        return new Date(b) - new Date(a);
+      });
+      
+      this.logger.debug(`Found ${months.length} unique months with transactions`);
+      return months;
+      
+    } catch (error) {
+      this.logger.error(`Error getting available months: ${error.message}`);
+      return [];
+    }
+  }
+  
+  updateMonthDropdown(dashboard, currentMonth = null) {
+    try {
+      // Get updated list of available months
+      const months = this.getAvailableMonths();
+      
+      // Fallback to current month if no transactions exist
+      if (months.length === 0) {
+        const now = new Date();
+        const year = now.getFullYear();
+        const month = String(now.getMonth() + 1).padStart(2, '0');
+        months.push(`${year}-${month}-01`);
+      }
+      
+      const cell = dashboard.getRange('B2');
+      
+      // Determine which month to select
+      let selectedMonth = months[0]; // Default to most recent
+      
+      if (currentMonth) {
+        let currentMonthStr;
+        if (currentMonth instanceof Date) {
+          const year = currentMonth.getFullYear();
+          const month = String(currentMonth.getMonth() + 1).padStart(2, '0');
+          currentMonthStr = `${year}-${month}-01`;
+        } else {
+          currentMonthStr = String(currentMonth);
+        }
+        
+        // Keep current selection if it's still valid
+        if (months.includes(currentMonthStr)) {
+          selectedMonth = currentMonthStr;
+        }
+      }
+      
+      // Update the dropdown validation
+      const rule = SpreadsheetApp.newDataValidation()
+        .requireValueInList(months, true)
+        .setAllowInvalid(false)
+        .build();
+      cell.setDataValidation(rule);
+      cell.setValue(selectedMonth);
+      
+      this.logger.debug(`Updated month dropdown with ${months.length} months`);
+      
+    } catch (error) {
+      this.logger.error(`Error updating month dropdown: ${error.message}`);
+    }
+  }
+  
+  createMonthlySummary(sheet, startRow) {
+    // Section header
+    sheet.getRange(startRow, 1, 1, 8).merge();
+    sheet.getRange(startRow, 1).setValue('💰 Selected Month Summary');
+    this.formatSectionHeader(sheet, startRow);
+    
+    // Summary metrics using SUMPRODUCT with IFERROR to handle empty cells
+    // This filters ALL transactions in the selected month, not just one day
+    const metrics = [
+      ['Total Transactions:', `=SUMPRODUCT((IFERROR(MONTH(DATEVALUE(Transactions!$A$2:$A$10000)),0)=MONTH(DATEVALUE($B$2)))*(IFERROR(YEAR(DATEVALUE(Transactions!$A$2:$A$10000)),0)=YEAR(DATEVALUE($B$2)))*(Transactions!$A$2:$A$10000<>""))`],
+      ['Total Spent:', `=SUMPRODUCT((IFERROR(MONTH(DATEVALUE(Transactions!$A$2:$A$10000)),0)=MONTH(DATEVALUE($B$2)))*(IFERROR(YEAR(DATEVALUE(Transactions!$A$2:$A$10000)),0)=YEAR(DATEVALUE($B$2)))*(Transactions!$A$2:$A$10000<>"")*(Transactions!$C$2:$C$10000))`],
+      ['Average Transaction:', `=IFERROR(B${startRow + 2}/B${startRow + 1},0)`],
+      ['Highest Transaction:', `=IFERROR(MAXIFS(Transactions!$C$2:$C$10000,Transactions!$A$2:$A$10000,">="&DATEVALUE($B$2),Transactions!$A$2:$A$10000,"<"&EOMONTH(DATEVALUE($B$2),0)+1),0)`]
+    ];
+    
+    sheet.getRange(startRow + 1, 1, metrics.length, 2).setValues(metrics);
+    sheet.getRange(startRow + 1, 1, metrics.length, 1).setFontWeight('bold');
+    
+    // Format currency columns
+    sheet.getRange(startRow + 2, 2, 3, 1).setNumberFormat(AMOUNT_FORMAT);
+    
+    // Add borders
+    sheet.getRange(startRow + 1, 1, metrics.length, 2).setBorder(true, true, true, true, true, true);
+    
+    // Return next available row (section height: 1 header + 4 metrics + 2 gap for safety)
+    return startRow + 1 + metrics.length + 2;
+  }
+  
+  createTopMerchants(sheet, startRow) {
+    // Section header
+    sheet.getRange(startRow, 1, 1, 4).merge();
+    sheet.getRange(startRow, 1).setValue('🏆 Top 5 Merchants (All Time)');
+    this.formatSectionHeader(sheet, startRow);
+    
+    // Headers
+    sheet.getRange(startRow + 1, 1, 1, 4).setValues([['Rank', 'Merchant', 'Total Spent', 'Transactions']]);
+    sheet.getRange(startRow + 1, 1, 1, 4).setFontWeight('bold').setBackground('#f3f3f3');
+    
+    // Add rank numbers
+    for (let i = 1; i <= 5; i++) {
+      sheet.getRange(startRow + 1 + i, 1).setValue(i);
+    }
+    
+    // Clear area to prevent array expansion errors
+    sheet.getRange(startRow + 2, 2, 5, 3).clearContent();
+    
+    // Add the query formula for merchant data (spans columns B:D, 5 rows)
+    const queryFormula = `=IFERROR(QUERY({Transactions!F2:F10000,Transactions!C2:C10000},"SELECT Col1, SUM(Col2), COUNT(Col2) WHERE Col1 != '' GROUP BY Col1 ORDER BY SUM(Col2) DESC LIMIT 5 LABEL Col1 '', SUM(Col2) '', COUNT(Col2) ''",0),"")`;
+    sheet.getRange(startRow + 2, 2, 1, 1).setFormula(queryFormula);
+    
+    // Format currency column
+    sheet.getRange(startRow + 2, 3, 5, 1).setNumberFormat(AMOUNT_FORMAT);
+    
+    // Add borders
+    sheet.getRange(startRow + 1, 1, 6, 4).setBorder(true, true, true, true, true, true);
+    
+    // Return next available row (1 header + 6 rows + 2 gap for safety)
+    return startRow + 1 + 6 + 2;
+  }
+  
+  createAccountWiseSpending(sheet, startRow) {
+    // Section header
+    sheet.getRange(startRow, 1, 1, 5).merge();
+    sheet.getRange(startRow, 1).setValue('💳 Account-wise Spending (All Time)');
+    this.formatSectionHeader(sheet, startRow);
+    
+    // Headers
+    sheet.getRange(startRow + 1, 1, 1, 5).setValues([['Account', 'Account Name', 'Total Spent', 'Transactions', 'Avg per Transaction']]);
+    sheet.getRange(startRow + 1, 1, 1, 5).setFontWeight('bold').setBackground('#f3f3f3');
+    
+    // Count unique accounts to determine actual space needed
+    const transSheet = this.spreadsheet.getSheetByName(SHEET_NAME);
+    let maxAccounts = 10; // Default allocation
+    
+    if (transSheet && transSheet.getLastRow() > 1) {
+      try {
+        const accounts = transSheet.getRange(2, 4, transSheet.getLastRow() - 1, 1).getValues();
+        const uniqueAccounts = new Set(accounts.map(row => row[0]).filter(a => a));
+        maxAccounts = Math.max(uniqueAccounts.size + 3, 10); // Add buffer and at least 10 rows
+        this.logger.debug(`Allocating ${maxAccounts} rows for account-wise spending`);
+      } catch (e) {
+        this.logger.debug('Could not count accounts, using default allocation');
+      }
+    }
+    
+    // Clear area to prevent array expansion errors
+    sheet.getRange(startRow + 2, 1, maxAccounts, 5).clearContent();
+    
+    // Use QUERY to get account-wise aggregation (formula will expand automatically)
+    const queryFormula = `=IFERROR(QUERY({Transactions!D2:D10000,Transactions!E2:E10000,Transactions!C2:C10000},"SELECT Col1, Col2, SUM(Col3), COUNT(Col3), AVG(Col3) WHERE Col1 != '' GROUP BY Col1, Col2 ORDER BY SUM(Col3) DESC LABEL Col1 '', Col2 '', SUM(Col3) '', COUNT(Col3) '', AVG(Col3) ''",0),"")`;
+    sheet.getRange(startRow + 2, 1, 1, 1).setFormula(queryFormula);
+    
+    // Format currency columns (will apply to all rows returned by QUERY)
+    sheet.getRange(startRow + 2, 3, maxAccounts, 1).setNumberFormat(AMOUNT_FORMAT);
+    sheet.getRange(startRow + 2, 5, maxAccounts, 1).setNumberFormat(AMOUNT_FORMAT);
+    
+    // Add borders (adjusted for dynamic content)
+    sheet.getRange(startRow + 1, 1, maxAccounts + 1, 5).setBorder(true, true, true, true, true, true);
+    
+    // Return next available row (1 header + 1 headers row + maxAccounts data rows + 2 gap for safety)
+    return startRow + 1 + 1 + maxAccounts + 2;
+  }
+  
+  createCategoryBreakdown(sheet, startRow) {
+    // Section header
+    sheet.getRange(startRow, 1, 1, 8).merge();
+    sheet.getRange(startRow, 1).setValue('📊 Spending by Category (Selected Month)');
+    this.formatSectionHeader(sheet, startRow);
+    
+    // Headers
+    sheet.getRange(startRow + 1, 1, 1, 3).setValues([['Category', 'Amount', 'Percentage']]);
+    sheet.getRange(startRow + 1, 1, 1, 3).setFontWeight('bold').setBackground('#f3f3f3');
+    
+    // Categories with SUMIF formulas to pull from Category Data sheet
+    const categories = Object.keys(CategoryMapper.getCategoryRules());
+    const rows = [];
+    const totalFormula = categories.map((_, i) => `B${startRow + 2 + i}`).join('+');
+    
+    for (let i = 0; i < categories.length; i++) {
+      const rowNum = startRow + 2 + i;
+      rows.push([
+        categories[i],
+        `=SUMIF('Category Data'!A:A,"${categories[i]}",'Category Data'!B:B)`,
+        `=IFERROR(B${rowNum}/(${totalFormula}),0)`
+      ]);
+    }
+    
+    sheet.getRange(startRow + 2, 1, rows.length, 3).setValues(rows);
+    sheet.getRange(startRow + 2, 2, rows.length, 1).setNumberFormat(AMOUNT_FORMAT);
+    sheet.getRange(startRow + 2, 3, rows.length, 1).setNumberFormat('0.00%');
+    
+    // Add note
+    sheet.getRange(startRow + 2 + rows.length, 1, 1, 3).merge();
+    sheet.getRange(startRow + 2 + rows.length, 1).setValue('Note: Categories are auto-assigned. Change month in dropdown above to see different periods. Run updateDashboard() to refresh.');
+    sheet.getRange(startRow + 2 + rows.length, 1).setFontSize(9).setFontStyle('italic').setWrap(true);
+    
+    // Add borders
+    sheet.getRange(startRow + 1, 1, rows.length + 1, 3).setBorder(true, true, true, true, true, true);
+    
+    // Return next available row (1 header + 1 header row + categories + 1 note row + 2 gap for safety)
+    return startRow + 1 + 1 + rows.length + 1 + 2;
+  }
+  
+  createTrendAnalysis(sheet, startRow) {
+    // Section header
+    sheet.getRange(startRow, 1, 1, 8).merge();
+    sheet.getRange(startRow, 1).setValue('📈 Spending Trends (Last 6 Months)');
+    this.formatSectionHeader(sheet, startRow);
+    
+    // Headers
+    sheet.getRange(startRow + 1, 1, 1, 4).setValues([['Month', 'Total Spent', 'Transactions', 'Daily Average']]);
+    sheet.getRange(startRow + 1, 1, 1, 4).setFontWeight('bold').setBackground('#f3f3f3');
+    
+    // Generate last 6 months with formulas using SUMPRODUCT with IFERROR to handle empty cells
+    const months = [];
+    for (let i = 5; i >= 0; i--) {
+      const date = new Date();
+      date.setMonth(date.getMonth() - i);
+      date.setDate(1);
+      const monthYear = Utilities.formatDate(date, getTimezone(), 'MMM-yyyy');
+      const rowNum = startRow + 2 + (5 - i);
+      
+      months.push([
+        monthYear,
+        `=SUMPRODUCT((IFERROR(MONTH(DATEVALUE(Transactions!$A$2:$A$10000)),0)=${date.getMonth() + 1})*(IFERROR(YEAR(DATEVALUE(Transactions!$A$2:$A$10000)),0)=${date.getFullYear()})*(Transactions!$A$2:$A$10000<>"")*(Transactions!$C$2:$C$10000))`,
+        `=SUMPRODUCT((IFERROR(MONTH(DATEVALUE(Transactions!$A$2:$A$10000)),0)=${date.getMonth() + 1})*(IFERROR(YEAR(DATEVALUE(Transactions!$A$2:$A$10000)),0)=${date.getFullYear()})*(Transactions!$A$2:$A$10000<>""))`,
+        `=IFERROR(B${rowNum}/DAY(EOMONTH(DATE(${date.getFullYear()},${date.getMonth() + 1},1),0)),0)`
+      ]);
+    }
+    
+    sheet.getRange(startRow + 2, 1, 6, 4).setValues(months);
+    sheet.getRange(startRow + 2, 2, 6, 1).setNumberFormat(AMOUNT_FORMAT);
+    sheet.getRange(startRow + 2, 4, 6, 1).setNumberFormat(AMOUNT_FORMAT);
+    
+    // Add sparkline for trend
+    sheet.getRange(startRow + 1, 5).setValue('Trend');
+    sheet.getRange(startRow + 1, 5).setFontWeight('bold').setBackground('#f3f3f3');
+    sheet.getRange(startRow + 2, 5, 6, 1).merge();
+    sheet.getRange(startRow + 2, 5).setFormula(`=SPARKLINE(B${startRow + 2}:B${startRow + 7},{"charttype","line";"linewidth",2;"color","#4285f4"})`);
+    
+    // Add borders
+    sheet.getRange(startRow + 1, 1, 7, 5).setBorder(true, true, true, true, true, true);
+    
+    // Return next available row (1 header + 7 rows + 2 gap for safety)
+    return startRow + 1 + 7 + 2;
+  }
+  
+  createBudgetComparison(sheet, startRow) {
+    // Section header
+    sheet.getRange(startRow, 1, 1, 8).merge();
+    sheet.getRange(startRow, 1).setValue('🎯 Budget vs Actual (Selected Month)');
+    this.formatSectionHeader(sheet, startRow);
+    
+    // Instructions
+    sheet.getRange(startRow + 1, 1, 1, 5).merge();
+    sheet.getRange(startRow + 1, 1).setValue('Edit the Budget column to set your monthly budget targets');
+    sheet.getRange(startRow + 1, 1).setFontSize(9).setFontStyle('italic').setBackground('#fff3cd');
+    
+    // Headers
+    sheet.getRange(startRow + 2, 1, 1, 5).setValues([['Category', 'Budget', 'Actual', 'Difference', 'Status']]);
+    sheet.getRange(startRow + 2, 1, 1, 5).setFontWeight('bold').setBackground('#f3f3f3');
+    
+    // Budget categories
+    const budgetRows = [
+      ['Food & Dining', 10000, `=SUMIF('Category Data'!A:A,"Food & Dining",'Category Data'!B:B)`, `=B${startRow + 3}-C${startRow + 3}`, `=IF(D${startRow + 3}>=0,"✓ Under","✗ Over")`],
+      ['Transportation', 5000, `=SUMIF('Category Data'!A:A,"Transportation",'Category Data'!B:B)`, `=B${startRow + 4}-C${startRow + 4}`, `=IF(D${startRow + 4}>=0,"✓ Under","✗ Over")`],
+      ['Shopping', 15000, `=SUMIF('Category Data'!A:A,"Shopping",'Category Data'!B:B)`, `=B${startRow + 5}-C${startRow + 5}`, `=IF(D${startRow + 5}>=0,"✓ Under","✗ Over")`],
+      ['Groceries', 8000, `=SUMIF('Category Data'!A:A,"Groceries",'Category Data'!B:B)`, `=B${startRow + 6}-C${startRow + 6}`, `=IF(D${startRow + 6}>=0,"✓ Under","✗ Over")`],
+      ['Entertainment', 3000, `=SUMIF('Category Data'!A:A,"Entertainment",'Category Data'!B:B)`, `=B${startRow + 7}-C${startRow + 7}`, `=IF(D${startRow + 7}>=0,"✓ Under","✗ Over")`],
+      ['Bills & Utilities', 5000, `=SUMIF('Category Data'!A:A,"Bills & Utilities",'Category Data'!B:B)`, `=B${startRow + 8}-C${startRow + 8}`, `=IF(D${startRow + 8}>=0,"✓ Under","✗ Over")`],
+      ['Other', 5000, `=SUMIF('Category Data'!A:A,"Other",'Category Data'!B:B)`, `=B${startRow + 9}-C${startRow + 9}`, `=IF(D${startRow + 9}>=0,"✓ Under","✗ Over")`]
+    ];
+    
+    sheet.getRange(startRow + 3, 1, budgetRows.length, 5).setValues(budgetRows);
+    
+    // Format currency
+    sheet.getRange(startRow + 3, 2, budgetRows.length, 3).setNumberFormat(AMOUNT_FORMAT);
+    
+    // Total row
+    sheet.getRange(startRow + 3 + budgetRows.length, 1).setValue('TOTAL');
+    sheet.getRange(startRow + 3 + budgetRows.length, 1).setFontWeight('bold');
+    sheet.getRange(startRow + 3 + budgetRows.length, 2).setFormula(`=SUM(B${startRow + 3}:B${startRow + 3 + budgetRows.length - 1})`);
+    sheet.getRange(startRow + 3 + budgetRows.length, 3).setFormula(`=SUM(C${startRow + 3}:C${startRow + 3 + budgetRows.length - 1})`);
+    sheet.getRange(startRow + 3 + budgetRows.length, 4).setFormula(`=SUM(D${startRow + 3}:D${startRow + 3 + budgetRows.length - 1})`);
+    sheet.getRange(startRow + 3 + budgetRows.length, 2, 1, 3).setNumberFormat(AMOUNT_FORMAT);
+    sheet.getRange(startRow + 3 + budgetRows.length, 1, 1, 5).setBackground('#f3f3f3').setFontWeight('bold');
+    
+    // Add borders
+    sheet.getRange(startRow + 2, 1, budgetRows.length + 2, 5).setBorder(true, true, true, true, true, true);
+    
+    // Add conditional formatting for status
+    const statusRange = sheet.getRange(startRow + 3, 5, budgetRows.length, 1);
+    const rule1 = SpreadsheetApp.newConditionalFormatRule()
+      .whenTextContains('✓')
+      .setBackground('#d4edda')
+      .setRanges([statusRange])
+      .build();
+    const rule2 = SpreadsheetApp.newConditionalFormatRule()
+      .whenTextContains('✗')
+      .setBackground('#f8d7da')
+      .setRanges([statusRange])
+      .build();
+    const rules = sheet.getConditionalFormatRules();
+    rules.push(rule1);
+    rules.push(rule2);
+    sheet.setConditionalFormatRules(rules);
+    
+    // Return next available row (1 header + 1 instruction + 1 header row + budgetRows + 1 total row)
+    return startRow + 1 + 1 + 1 + budgetRows.length + 1;
+  }
+  
+  formatSectionHeader(sheet, row) {
+    sheet.getRange(row, 1).setFontSize(12).setFontWeight('bold');
+    sheet.getRange(row, 1).setBackground('#34a853').setFontColor('#ffffff');
+    sheet.setRowHeight(row, 30);
+  }
+  
+  createCategoryDataSheet() {
+    try {
+      let categorySheet = this.spreadsheet.getSheetByName('Category Data');
+      
+      if (categorySheet) {
+        categorySheet.clear();
+      } else {
+        categorySheet = this.spreadsheet.insertSheet('Category Data');
+      }
+      
+      // Headers
+      categorySheet.getRange(1, 1, 1, 3).setValues([['Category', 'Amount', 'Merchant']]);
+      categorySheet.getRange(1, 1, 1, 3).setFontWeight('bold').setBackground('#f3f3f3');
+      
+      // Get transaction data
+      const transSheet = this.spreadsheet.getSheetByName(SHEET_NAME);
+      if (!transSheet) {
+        this.logger.warn('Transactions sheet not found');
+        return;
+      }
+      
+      const lastRow = transSheet.getLastRow();
+      if (lastRow <= 1) {
+        this.logger.warn('No transactions found in sheet');
+        return;
+      }
+      
+      this.logger.info(`Found ${lastRow - 1} transactions in sheet`);
+      
+      // Get selected month from dashboard
+      const dashboard = this.spreadsheet.getSheetByName(this.dashboardName);
+      const selectedDateStr = dashboard ? dashboard.getRange('B2').getValue() : null;
+      
+      // Parse selected month and year from yyyy-mm-dd format
+      let selectedMonth, selectedYear;
+      if (selectedDateStr) {
+        const selectedDate = new Date(selectedDateStr);
+        selectedMonth = selectedDate.getMonth();
+        selectedYear = selectedDate.getFullYear();
+      } else {
+        const now = new Date();
+        selectedMonth = now.getMonth();
+        selectedYear = now.getFullYear();
+      }
+      
+      this.logger.info(`Filtering for month: ${selectedMonth + 1}, year: ${selectedYear}`);
+      
+      // Get all transactions for selected month
+      const lastCol = transSheet.getLastColumn();
+      const transactions = transSheet.getRange(2, 1, lastRow - 1, Math.max(lastCol, 8)).getValues();
+      const categoryData = [];
+      
+      let processedCount = 0;
+      let matchedCount = 0;
+      
+      transactions.forEach((row, index) => {
+        const date = row[0]; // Column A (Date)
+        const amount = row[2]; // Column C (Amount)
+        const merchant = row[5]; // Column F (Merchant/Description)
+        
+        processedCount++;
+        
+        // Skip if no date or amount or merchant
+        if (!date || !amount || !merchant) {
+          return;
+        }
+        
+        // Handle both Date objects and text dates
+        let transDate;
+        try {
+          if (date instanceof Date) {
+            transDate = date;
+          } else if (typeof date === 'string' && date.trim() !== '') {
+            // Try to parse DD-MMM-YYYY format (e.g., "01-Dec-2025")
+            transDate = new Date(date);
+          } else {
+            return; // Skip invalid dates
+          }
+          
+          // Check if date is valid
+          if (isNaN(transDate.getTime())) {
+            return;
+          }
+          
+          const transMonth = transDate.getMonth();
+          const transYear = transDate.getFullYear();
+          
+          if (transMonth === selectedMonth && transYear === selectedYear) {
+            matchedCount++;
+            const category = CategoryMapper.categorize(merchant);
+            categoryData.push([category, amount, merchant]);
+          }
+        } catch (e) {
+          // Skip invalid dates
+          return;
+        }
+      });
+      
+      this.logger.info(`Processed ${processedCount} rows, matched ${matchedCount} transactions`);
+      
+      if (categoryData.length > 0) {
+        categorySheet.getRange(2, 1, categoryData.length, 3).setValues(categoryData);
+        this.logger.success(`Added ${categoryData.length} transactions to Category Data sheet`);
+      } else {
+        this.logger.warn(`No transactions found for the selected month`);
+      }
+      
+      // Hide this sheet (it's just for data processing)
+      categorySheet.hideSheet();
+      
+      const monthName = Utilities.formatDate(new Date(selectedYear, selectedMonth, 1), getTimezone(), 'MMM-yyyy');
+      this.logger.info(`Category data created for ${monthName}`);
+      
+    } catch (error) {
+      this.logger.error(`Error creating category data: ${error.message}`);
+      throw error;
+    }
+  }
+}
+
+/**
+ * Create or update the analytics dashboard
+ * Run this function to generate/refresh the dashboard with latest data
+ * 
+ * Creates:
+ * - Monthly summary with key metrics
+ * - Top 5 merchants analysis
+ * - Account-wise spending breakdown
+ * - Category-based spending analysis
+ * - 6-month spending trends
+ * - Budget vs Actual comparison
+ */
+function updateDashboard() {
+  const logger = new Logger(LOG_LEVEL);
+  
+  try {
+    logger.section('Updating Dashboard');
+    
+    const spreadsheet = SpreadsheetApp.openById(SHEET_ID);
+    const dashboardManager = new DashboardManager(spreadsheet, logger);
+    
+    // Create category data first
+    dashboardManager.createCategoryDataSheet();
+    
+    // Create/update dashboard
+    dashboardManager.createOrUpdateDashboard();
+    
+    logger.success('Dashboard updated successfully!');
+    logger.info('Open the "Dashboard" sheet to view your analytics');
+    
+    // Show toast notification (only if run from spreadsheet UI)
+    try {
+      const activeSpreadsheet = SpreadsheetApp.getActiveSpreadsheet();
+      if (activeSpreadsheet) {
+        activeSpreadsheet.toast(
+          'Your analytics dashboard has been updated with the latest data!',
+          'Dashboard Updated',
+          5
+        );
+      }
+    } catch (e) {
+      // Ignore toast errors (happens when run from script editor)
+    }
+    
+  } catch (error) {
+    logger.error(`Error updating dashboard: ${error.message}`);
+    throw error;
+  }
+}
+
+/**
+ * MENU: Add custom menu to spreadsheet
+ * This runs automatically when the spreadsheet is opened
+ */
+function onOpen() {
+  try {
+    const ui = SpreadsheetApp.getUi();
+    ui.createMenu('📊 TransacFlow')
+      .addItem('🔄 Refresh Dashboard', 'menu_RefreshDashboard')
+      .addItem('📧 Process New Emails', 'processTransactionEmails')
+      .addItem('📈 Update Full Dashboard', 'updateDashboard')
+      .addToUi();
+    console.log('TransacFlow menu created successfully');
+  } catch (error) {
+    console.error('Error creating menu:', error.message);
+  }
+}
+
+/**
+ * MANUAL REFRESH: Refresh dashboard data for selected month
+ * Run this from script editor if menu doesn't work
+ * This is the same as menu_RefreshDashboard but works from script editor
+ */
+function manualRefreshDashboard() {
+  const logger = new Logger('INFO');
+  
+  try {
+    logger.section('Manual Dashboard Refresh');
+    
+    const spreadsheet = SpreadsheetApp.openById(SHEET_ID);
+    logger.info(`Spreadsheet: ${spreadsheet.getName()}`);
+    
+    const dashboard = spreadsheet.getSheetByName('Dashboard');
+    
+    if (!dashboard) {
+      logger.error('Dashboard sheet not found. Run updateDashboard() first.');
+      return;
+    }
+    
+    const selectedMonth = dashboard.getRange('B2').getValue();
+    logger.info(`Selected month: ${selectedMonth}`);
+    
+    const dashboardManager = new DashboardManager(spreadsheet, logger);
+    
+    // Update month dropdown with any new months
+    logger.info('Updating month dropdown...');
+    dashboardManager.updateMonthDropdown(dashboard, selectedMonth);
+    
+    // Regenerate category data
+    logger.info('Regenerating Category Data sheet...');
+    dashboardManager.createCategoryDataSheet();
+    
+    // Update timestamp
+    const now = new Date().toLocaleString();
+    dashboard.getRange('C2').setValue('Last Updated: ' + now);
+    logger.info(`Updated timestamp: ${now}`);
+    
+    logger.success('Dashboard refreshed successfully!');
+    logger.info('Check your Dashboard sheet - data should be updated');
+    
+  } catch (error) {
+    logger.error(`Refresh failed: ${error.message}`);
+    console.error('Stack:', error.stack);
+  }
+}
+
+/**
+ * MENU FUNCTION: Refresh dashboard for currently selected month
+ * This is called from the custom menu
+ */
+function menu_RefreshDashboard() {
+  const ui = SpreadsheetApp.getUi();
+  
+  try {
+    const spreadsheet = SpreadsheetApp.getActiveSpreadsheet();
+    const dashboard = spreadsheet.getSheetByName('Dashboard');
+    
+    if (!dashboard) {
+      ui.alert('Error', 'Dashboard sheet not found. Please run "Update Full Dashboard" first.', ui.ButtonSet.OK);
+      return;
+    }
+    
+    const selectedMonth = dashboard.getRange('B2').getValue();
+    
+    // Show processing message
+    spreadsheet.toast('Refreshing dashboard data...', 'Please Wait', -1);
+    
+    // Force INFO level for menu actions (ignore LOG_LEVEL)
+    const logger = new Logger('INFO');
+    logger.info(`Refreshing dashboard for month: ${selectedMonth}`);
+    
+    const dashboardManager = new DashboardManager(spreadsheet, logger);
+    
+    // Update month dropdown with any new months
+    dashboardManager.updateMonthDropdown(dashboard, selectedMonth);
+    
+    // Refresh category data
+    dashboardManager.createCategoryDataSheet();
+    
+    // Update timestamp in dashboard
+    const now = new Date().toLocaleString();
+    dashboard.getRange('C2').setValue('Last Updated: ' + now);
+    
+    spreadsheet.toast('Dashboard refreshed successfully!', 'Success', 3);
+    logger.success('Dashboard refresh completed');
+    
+  } catch (error) {
+    ui.alert('Error', `Failed to refresh dashboard: ${error.message}`, ui.ButtonSet.OK);
+    console.error('Refresh error:', error);
+  }
+}
+
+/**
+ * TRIGGER: Auto-update dashboard when month is changed
+ * This function is automatically called by Google Sheets when any cell is edited
+ * It detects changes to the month selector dropdown (cell B2 in Dashboard sheet)
+ * and refreshes the category data to match the newly selected month
+ */
+function onEdit(e) {
+  try {
+    // Always log to see if trigger fires
+    console.log('[onEdit] Trigger fired');
+    
+    // Check if the edit event exists and has required properties
+    if (!e || !e.range) {
+      console.log('[onEdit] No event or range, exiting');
+      return;
+    }
+    
+    const range = e.range;
+    const sheet = range.getSheet();
+    const sheetName = sheet.getName();
+    const cellAddress = range.getA1Notation();
+    
+    // Always log the edit details
+    console.log(`[onEdit] Sheet: ${sheetName}, Cell: ${cellAddress}`);
+    
+    // Check if edit is in Dashboard sheet, cell B2 (month selector)
+    if (sheetName === 'Dashboard' && cellAddress === 'B2') {
+      console.log('[onEdit] Dashboard month changed detected!');
+      
+      // Use active spreadsheet (more reliable for triggers)
+      const spreadsheet = SpreadsheetApp.getActiveSpreadsheet();
+      
+      if (!spreadsheet) {
+        console.error('[onEdit] Could not get active spreadsheet!');
+        return;
+      }
+      
+      const newMonth = range.getValue();
+      console.log(`[onEdit] New month selected: ${newMonth}`);
+      
+      // Show "updating" message immediately
+      try {
+        const dashboard = sheet;
+        dashboard.getRange('C2').setValue('Updating...');
+        spreadsheet.toast('Refreshing dashboard data...', 'Please Wait', 2);
+      } catch (e) {
+        // Ignore if can't update
+      }
+      
+      // Force INFO level for triggers (ignore global LOG_LEVEL)
+      const logger = new Logger('INFO');
+      logger.info('Month changed in dashboard, updating category data...');
+      
+      const dashboardManager = new DashboardManager(spreadsheet, logger);
+      dashboardManager.createCategoryDataSheet();
+      
+      logger.success('Dashboard data refreshed for selected month!');
+      console.log('[onEdit] Category data updated successfully');
+      
+      // Update timestamp to show refresh happened
+      try {
+        const now = new Date().toLocaleString();
+        sheet.getRange('C2').setValue('Last Updated: ' + now);
+        
+        spreadsheet.toast(
+          'Dashboard refreshed for ' + newMonth,
+          'Success',
+          2
+        );
+        console.log('[onEdit] Dashboard timestamp updated');
+      } catch (toastError) {
+        console.error('[onEdit] Error updating timestamp:', toastError.message);
+      }
+      
+      return; // Exit after handling dashboard
+    }
+    
+    // Handle Account Nicknames sheet edits (existing functionality)
+    const nicknamesSheetName = typeof NICKNAMES_SHEET_NAME !== 'undefined' ? NICKNAMES_SHEET_NAME : 'Account Nicknames';
+    if (sheetName === nicknamesSheetName) {
+      console.log('[onEdit] Account Nicknames sheet edited');
+      const logger = new Logger('INFO');
+      const spreadsheet = SpreadsheetApp.getActiveSpreadsheet();
+      const nicknameManager = new NicknameManager(spreadsheet, logger);
+      nicknameManager.updateTransactionsWithNicknames();
+    }
+    
+    console.log('[onEdit] Completed, no action taken for this edit');
+    
+  } catch (error) {
+    // Log error details for debugging
+    console.error('[onEdit] ERROR:', error.message);
+    console.error('[onEdit] Stack:', error.stack);
+    
+    // Show error to user
+    try {
+      SpreadsheetApp.getActiveSpreadsheet().toast(
+        `Error updating dashboard: ${error.message}`,
+        'Dashboard Update Failed',
+        5
+      );
+    } catch (toastError) {
+      // Can't show toast, just log
+      console.error('[onEdit] Could not show error toast');
+    }
+  }
+}
+
+/**
+ * DEBUG: Test the dashboard refresh manually
+ * Run this to see if the refresh logic works without the trigger
+ */
+function debug_DashboardRefresh() {
+  const logger = new Logger('DEBUG');
+  
+  try {
+    logger.section('Testing Dashboard Refresh');
+    
+    // Use SHEET_ID from config (works when run from script editor)
+    logger.info(`Using SHEET_ID: ${SHEET_ID}`);
+    const spreadsheet = SpreadsheetApp.openById(SHEET_ID);
+    logger.info(`Spreadsheet: ${spreadsheet.getName()}`);
+    
+    const dashboard = spreadsheet.getSheetByName('Dashboard');
+    if (!dashboard) {
+      logger.error('Dashboard sheet not found!');
+      logger.info('Available sheets:');
+      spreadsheet.getSheets().forEach(sheet => {
+        logger.info(`  - ${sheet.getName()}`);
+      });
+      return;
+    }
+    
+    const selectedMonth = dashboard.getRange('B2').getValue();
+    logger.info(`Selected month in B2: ${selectedMonth}`);
+    logger.info(`Selected month type: ${typeof selectedMonth}`);
+    
+    logger.info('Creating DashboardManager...');
+    const dashboardManager = new DashboardManager(spreadsheet, logger);
+    
+    logger.info('Calling createCategoryDataSheet...');
+    dashboardManager.createCategoryDataSheet();
+    
+    logger.success('Dashboard refresh completed!');
+    
+    // Check if Category Data sheet exists
+    const categorySheet = spreadsheet.getSheetByName('Category Data');
+    if (categorySheet) {
+      const lastRow = categorySheet.getLastRow();
+      logger.info(`Category Data sheet has ${lastRow} rows`);
+      
+      // Show first few rows of data
+      if (lastRow > 1) {
+        logger.info('Sample data from Category Data sheet:');
+        const sampleData = categorySheet.getRange(2, 1, Math.min(5, lastRow - 1), 3).getValues();
+        sampleData.forEach((row, idx) => {
+          logger.info(`  Row ${idx + 2}: Category="${row[0]}", Amount="${row[1]}", Merchant="${row[2]}"`);
+        });
+      } else {
+        logger.warn('Category Data sheet is empty (only headers)');
+      }
+    } else {
+      logger.warn('Category Data sheet not found!');
+    }
+    
+    // Try to show toast (will only work if run from spreadsheet UI)
+    try {
+      SpreadsheetApp.getActiveSpreadsheet().toast(
+        'Dashboard refresh test completed successfully!',
+        'Test Complete',
+        3
+      );
+    } catch (toastError) {
+      logger.info('Toast notification skipped (running from script editor)');
+    }
+    
+  } catch (error) {
+    logger.error(`Test failed: ${error.message}`);
+    console.error('Full error:', error);
+    console.error('Stack:', error.stack);
+  }
+}
+
+/**
+ * DEBUG: Show what's in the execution log
+ * Check the most recent executions
+ */
+function debug_CheckLastExecution() {
+  console.log('Check View > Executions to see the logs');
+  console.log('Look for [onEdit] prefix in the logs');
+  console.log('If you see the trigger firing but no action, check:');
+  console.log('1. Sheet name is exactly "Dashboard"');
+  console.log('2. Cell is exactly "B2"');
+  console.log('3. No errors in the execution logs');
+}
+
+/**
+ * Add category column to existing transactions
+ * Run this once to add categories to all your historical transactions
+ */
+function addCategoriesToTransactions() {
+  const logger = new Logger(LOG_LEVEL);
+  
+  try {
+    logger.section('Adding Categories to Transactions');
+    
+    const spreadsheet = SpreadsheetApp.openById(SHEET_ID);
+    const transSheet = spreadsheet.getSheetByName(SHEET_NAME);
+    
+    if (!transSheet) {
+      logger.error('Transactions sheet not found');
+      return;
+    }
+    
+    // Check if Category column already exists
+    const headers = transSheet.getRange(1, 1, 1, transSheet.getLastColumn()).getValues()[0];
+    let categoryCol = headers.indexOf('Category') + 1;
+    
+    if (categoryCol === 0) {
+      // Add Category column after Merchant column (column 6)
+      categoryCol = 7;
+      transSheet.insertColumnAfter(6);
+      transSheet.getRange(1, categoryCol).setValue('Category');
+      transSheet.getRange(1, categoryCol).setFontWeight('bold').setBackground('#4285f4').setFontColor('#ffffff');
+      logger.info('Added Category column');
+    }
+    
+    // Get all transactions
+    const lastRow = transSheet.getLastRow();
+    if (lastRow <= 1) {
+      logger.info('No transactions to categorize');
+      return;
+    }
+    
+    const merchants = transSheet.getRange(2, 6, lastRow - 1, 1).getValues(); // Column F (Merchant)
+    const categories = merchants.map(row => [CategoryMapper.categorize(row[0])]);
+    
+    // Write categories
+    transSheet.getRange(2, categoryCol, categories.length, 1).setValues(categories);
+    
+    logger.success(`Categorized ${categories.length} transactions`);
+    
+  } catch (error) {
+    logger.error(`Error adding categories: ${error.message}`);
+    throw error;
   }
 }
 
@@ -1458,7 +2545,7 @@ function refreshAllNicknames() {
     }
     
     // Get all transaction data
-    const dataRange = transSheet.getRange(2, 1, lastRow - 1, 8);
+    const dataRange = transSheet.getRange(2, 1, lastRow - 1, 9);
     const data = dataRange.getValues();
     
     let updatedCount = 0;
@@ -1466,7 +2553,7 @@ function refreshAllNicknames() {
     // Update each row with latest nickname
     for (let i = 0; i < data.length; i++) {
       const accountNumber = data[i][3]; // Column 4 (index 3) is Account/Card/UPI
-      const source = data[i][6]; // Column 7 (index 6) is Source
+      const source = data[i][7]; // Column 8 (index 7) is Source
       
       if (accountNumber) {
         const nickname = nicknameManager.getAccountNickname(accountNumber, source);
@@ -1636,6 +2723,110 @@ function debug_EmailSearch() {
     }
   } catch (error) {
     logger.error(`Search failed: ${error.message}`);
+  }
+}
+
+/**
+ * DEBUG: Check dashboard data and formulas
+ * 
+ * Use this to troubleshoot why dashboard shows zeros
+ */
+function debug_DashboardData() {
+  const logger = new Logger('DEBUG');
+  
+  try {
+    logger.section('Dashboard Data Diagnostics');
+    
+    const spreadsheet = SpreadsheetApp.openById(SHEET_ID);
+    const transSheet = spreadsheet.getSheetByName(SHEET_NAME);
+    const dashboard = spreadsheet.getSheetByName('Dashboard');
+    
+    if (!transSheet) {
+      logger.error('Transactions sheet not found!');
+      return;
+    }
+    
+    if (!dashboard) {
+      logger.error('Dashboard sheet not found! Run updateDashboard() first.');
+      return;
+    }
+    
+    // Check transactions
+    const lastRow = transSheet.getLastRow();
+    logger.info(`Transactions sheet has ${lastRow - 1} transactions`);
+    
+    if (lastRow > 1) {
+      // Sample first few transactions
+      const sampleData = transSheet.getRange(2, 1, Math.min(5, lastRow - 1), 8).getValues();
+      logger.info('\nSample Transactions:');
+      sampleData.forEach((row, idx) => {
+        logger.info(`  ${idx + 1}. Date: ${row[0]} | Amount: ${row[2]} | Merchant: ${row[5]}`);
+      });
+    }
+    
+    // Check selected month
+    const selectedMonth = dashboard.getRange('B2').getValue();
+    logger.info(`\nSelected Month in Dashboard: ${selectedMonth}`);
+    
+    // Check if dates match
+    if (lastRow > 1) {
+      const allDates = transSheet.getRange(2, 1, lastRow - 1, 1).getValues();
+      const matchingCount = allDates.filter(row => {
+        const dateStr = row[0] ? row[0].toString() : '';
+        return dateStr.includes(selectedMonth);
+      }).length;
+      
+      logger.info(`Transactions matching "${selectedMonth}": ${matchingCount}`);
+      
+      if (matchingCount === 0) {
+        logger.warn('\n⚠️ No transactions match the selected month!');
+        logger.info('Date formats in sheet:');
+        allDates.slice(0, 5).forEach((row, idx) => {
+          logger.info(`  ${idx + 1}. "${row[0]}"`);
+        });
+      }
+    }
+    
+    // Check formulas
+    logger.info('\nDashboard Formulas:');
+    const formula1 = dashboard.getRange('B5').getFormula();
+    const formula2 = dashboard.getRange('B6').getFormula();
+    logger.info(`  Total Transactions: ${formula1}`);
+    logger.info(`  Total Spent: ${formula2}`);
+    
+    // Check Category Data sheet
+    const categorySheet = spreadsheet.getSheetByName('Category Data');
+    if (categorySheet) {
+      try {
+        categorySheet.showSheet(); // Temporarily unhide
+        const catLastRow = categorySheet.getLastRow();
+        logger.info(`\nCategory Data sheet has ${catLastRow - 1} entries`);
+        if (catLastRow > 1) {
+          const catSample = categorySheet.getRange(2, 1, Math.min(3, catLastRow - 1), 3).getValues();
+          logger.info('Sample Category Data:');
+          catSample.forEach((row, idx) => {
+            logger.info(`  ${idx + 1}. Category: ${row[0]} | Amount: ${row[1]} | Merchant: ${row[2]}`);
+          });
+        }
+        categorySheet.hideSheet(); // Hide again
+      } catch (e) {
+        logger.warn(`Could not access Category Data: ${e.message}`);
+      }
+    } else {
+      logger.warn('Category Data sheet not found!');
+    }
+    
+    logger.section('Recommendations');
+    if (lastRow <= 1) {
+      logger.info('1. Run processTransactionEmails() to import transactions');
+    } else {
+      logger.info('1. Verify date format in Transactions sheet matches dropdown format');
+      logger.info('2. Try selecting current month in dropdown');
+      logger.info('3. Run updateDashboard() to refresh all data');
+    }
+    
+  } catch (error) {
+    logger.error(`Error in diagnostics: ${error.message}`);
   }
 }
 

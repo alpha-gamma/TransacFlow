@@ -59,7 +59,11 @@ Identify:
 
 ### Step 2: Create Pattern
 
-Create/edit `BankPatterns.gs` in Apps Script:
+In your sheet, go to **Extensions → Apps Script**, then create/edit `BankPatterns.gs`:
+
+1. Click **+ → Script**
+2. Name it `BankPatterns`
+3. Paste this template:
 
 ```javascript
 function getBankPatterns() {
@@ -89,30 +93,34 @@ function getBankPatterns() {
 
 ### Step 3: Test
 
-In Apps Script:
+**Test Your Pattern:**
+- Extensions → Apps Script
+- Select `test_SingleEmail` from dropdown → Run
+- Check logs (View → Executions) for extracted data
 
-```javascript
-Run → test_SingleEmail()    // See extracted data
-Run → test_WriteToSheet()   // Test writing to sheet
-```
+Verify extracted values are correct. Adjust patterns if needed.
 
-Check logs for extracted values. Adjust patterns until correct.
+**Write to Sheet:**
+- Select `test_WriteToSheet` from dropdown → Run
+- Check your Transactions sheet for the test entry
 
 ---
 
 ### Step 4: Debug (If Needed)
 
 **Email not found?**
-```javascript
-Run → debug_EmailSearch()   // See what emails match
-```
+- In Apps Script, run `debug_EmailSearch()`
+- Check which emails are being found
 
 **Data not extracting?**
-```javascript
-Run → debug_ShowRawEmail()  // See raw email content
-```
+- In Apps Script, run `debug_ShowRawEmail()`
+- View raw email content in logs (View → Executions)
 
-Set `LOG_LEVEL = 'DEBUG'` in Config.gs for detailed logs.
+**Check search query:**
+- In Apps Script, run `debug_SearchQuery()`
+- View current Gmail search parameters
+
+**Tip:** Set `LOG_LEVEL = 'DEBUG'` in Config.gs for detailed logs.
 
 ---
 

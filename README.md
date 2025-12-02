@@ -19,6 +19,9 @@ Stop manual expense tracking. TransacFlow reads transaction emails and logs them
 - ✅ **Multi-Bank** - HDFC, Axis, ICICI, SBI built-in
 - ✅ **Never Duplicates** - Logs each transaction once
 - ✅ **Auto-Runs** - Checks every 10 minutes
+- ✅ **Analytics Dashboard** - Instant insights with charts & trends
+- ✅ **Auto-Categorization** - Smart merchant categorization
+- ✅ **Budget Tracking** - Set & monitor spending goals
 
 ---
 
@@ -26,44 +29,37 @@ Stop manual expense tracking. TransacFlow reads transaction emails and logs them
 
 ### 1. Create Google Sheet
 - Go to [sheets.google.com](https://sheets.google.com) → New spreadsheet
-- Copy the **Sheet ID** from URL: `docs.google.com/spreadsheets/d/SHEET_ID_HERE/edit`
+- Name it "My Transactions" (or anything you like)
 
-### 2. Open Apps Script
-- Go to [script.google.com](https://script.google.com) → New project
-- Name it "Transaction Automation"
+### 2. Open Script Editor
+- In your sheet: **Extensions → Apps Script**
+- A new tab opens with the script editor
 
 ### 3. Add Code Files
 
-Copy these 2 files:
+**File 1: Rename Code.gs → Config**
+- Click on "Code.gs" in left sidebar
+- Click the 3 dots (⋮) → Rename → Name it `Config`
+- Delete all content and paste `Config.gs` from repository
+- **Update `SHEET_ID`**: Replace `'YOUR_SHEET_ID_HERE'` with your Sheet ID
+  - Find it in your sheet URL: `docs.google.com/spreadsheets/d/SHEET_ID_HERE/edit`
 
-**File 1: Config.gs**
-
-- Click **+ → Script** → Name it `Config`
-- Paste code from repository
-- **Update `SHEET_ID`** with your Sheet ID
-
-**File 2: Code.gs**
-
-- Replace default `Code.gs` content
-- Paste code from repository
-- Save
+**File 2: Create Code.gs**
+- Click **+ → Script** → Name it `Code`
+- Paste `Code.gs` from repository
+- Save (Ctrl/Cmd + S)
 
 ### 4. Run Setup
+- Select `setupAutomation` from function dropdown
+- Click **Run** (▶️)
+- Grant permissions when asked (click "Advanced" → "Go to project" → "Allow")
 
-```javascript
-Run → setupAutomation
-```
+### 5. Refresh Your Sheet
+- Go back to your Google Sheet
+- Refresh the page (F5)
+- You'll see **📊 TransacFlow** menu in the menu bar!
 
-Grant permissions when asked.
-
-### 5. Test
-
-```javascript
-Run → test_SingleEmail      // Test parsing
-Run → test_WriteToSheet     // Test writing to sheet
-```
-
-Done! ✨ Automation runs every 10 minutes.
+Done! ✨ Automation runs every 10 minutes. Use the TransacFlow menu to refresh dashboard or process emails manually.
 
 ---
 
@@ -71,10 +67,10 @@ Done! ✨ Automation runs every 10 minutes.
 
 Your sheet automatically fills with:
 
-| Date | Time | Amount (₹) | Account/Card | Account Name | Merchant | Source |
-|------|------|-----------|--------------|--------------|----------|--------|
-| 01-Dec-2025 | 14:30 | 1,234.56 | XX4523 | HDFC Card | AMAZON | HDFC Credit Card |
-| 01-Dec-2025 | 18:22 | 450.00 | XX3085 | Salary Account | SWIGGY | HDFC UPI |
+| Date | Time | Amount (₹) | Account/Card | Account Name | Merchant | Category | Source |
+|------|------|-----------|--------------|--------------|----------|----------|--------|
+| 01-Dec-2025 | 14:30 | 1,234.56 | XX4523 | HDFC Card | AMAZON | Shopping | HDFC Credit Card |
+| 01-Dec-2025 | 18:22 | 450.00 | XX3085 | Salary Account | SWIGGY | Food & Dining | HDFC UPI |
 
 ---
 
@@ -96,10 +92,10 @@ Your sheet automatically fills with:
 
 ## ⚙️ Configuration
 
-All settings in `Config.gs`:
+All settings in `Config.gs` (access via Extensions → Apps Script):
 
 ```javascript
-const SHEET_ID = 'YOUR_SHEET_ID_HERE';   // ⚠️ Required
+const SHEET_ID = 'YOUR_SHEET_ID_HERE';   // ⚠️ Required (one-time setup)
 const EMAIL_SEARCH_DAYS = 90;             // How far back to search
 const CURRENCY_SYMBOL = '₹';              // ₹, $, €, £
 const LOG_LEVEL = 'INFO';                 // INFO, DEBUG, ERROR
@@ -108,24 +104,50 @@ const LOG_LEVEL = 'INFO';                 // INFO, DEBUG, ERROR
 **Account Nicknames:**  
 TransacFlow auto-creates an "Account Nicknames" sheet. Edit the "Custom Nickname" column to rename your cards/accounts - all transactions update automatically!
 
+**Custom Menu:**  
+After setup, access TransacFlow functions from the **📊 TransacFlow** menu in your sheet.
+
+---
+
+## 📊 Analytics Dashboard (NEW!)
+
+Get powerful insights from your spending data:
+
+```javascript
+Run → updateDashboard()  // Creates comprehensive analytics dashboard
+```
+
+**Dashboard includes:**
+
+- 💰 **Monthly Summary** - Total spent, average transaction, highest transaction
+- 🏆 **Top 5 Merchants** - See where you spend the most
+- 💳 **Account-wise Spending** - Compare usage across cards/UPIs
+- 📊 **Category Breakdown** - Auto-categorized spending (Food, Transport, Shopping, etc.)
+- 📈 **6-Month Trends** - Visual spending patterns with sparklines
+- 🎯 **Budget vs Actual** - Set budgets and track your progress
+
+**Auto-Categorization:**  
+Transactions are intelligently categorized based on merchant names (e.g., Swiggy → Food & Dining, Uber → Transportation). Run `addCategoriesToTransactions()` to categorize existing transactions.
+
 ---
 
 ## 🔧 Available Functions
 
-**Setup & Run:**
+Access these from **📊 TransacFlow** menu in your sheet:
 
-- `setupAutomation()` - Initial setup
-- `processTransactionEmails()` - Manual run (also runs every 10 min)
+- **🔄 Refresh Dashboard** - Update dashboard for selected month
+- **📧 Process New Emails** - Manually process transaction emails
+- **📈 Update Full Dashboard** - Regenerate complete analytics
 
-**Testing:**
+**Advanced (via Extensions → Apps Script):**
 
+- `setupAutomation()` - Initial setup (run once)
 - `test_SingleEmail()` - Test email parsing
 - `test_WriteToSheet()` - Test sheet writing
-
-**Debugging:**
-
-- `debug_EmailSearch()` - Check email search
-- `debug_SearchQuery()` - View search query
+- `refreshAllNicknames()` - Update all transaction nicknames
+- `addCategoriesToTransactions()` - Add categories to existing transactions
+- `debug_EmailSearch()` - Diagnose email search issues
+- `debug_ShowRawEmail()` - View raw email content
 
 ---
 
@@ -146,6 +168,7 @@ TransacFlow auto-creates an "Account Nicknames" sheet. Edit the "Custom Nickname
 | **Privacy** | Your account | 3rd party | Secure |
 | **Setup** | 5 minutes | 15-20 min | N/A |
 | **Automation** | Every 10 min | Limited runs | Never |
+| **Analytics** | Built-in dashboard | Limited | None |
 | **Customization** | Unlimited | Limited | N/A |
 
 ---
@@ -160,11 +183,11 @@ We welcome contributions!
 
 **Report Issues:**
 
-- [GitHub Issues](https://github.com/alpha-gamma/transacflow/issues)
+- [GitHub Issues](https://github.com/yourusername/transacflow/issues)
 
 **Request Features:**
 
-- [GitHub Discussions](https://github.com/alpha-gamma/transacflow/discussions)
+- [GitHub Discussions](https://github.com/yourusername/transacflow/discussions)
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.
 
@@ -215,7 +238,7 @@ MIT License - see [LICENSE](LICENSE) file.
 
 **Flow your transactions from Gmail to Sheets**
 
-[⭐ Star](https://github.com/alpha-gamma/transacflow) • [📖 Docs](docs/) • [🐛 Issues](https://github.com/alpha-gamma/transacflow/issues) • [💬 Discuss](https://github.com/alpha-gamma/transacflow/discussions)
+[⭐ Star](https://github.com/yourusername/transacflow) • [📖 Docs](docs/) • [🐛 Issues](https://github.com/yourusername/transacflow/issues) • [💬 Discuss](https://github.com/yourusername/transacflow/discussions)
 
 **Happy Automating! 🚀**
 
