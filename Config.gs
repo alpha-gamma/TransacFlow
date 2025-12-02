@@ -1,19 +1,17 @@
 /**
  * TransacFlow - Configuration File
  * 
- * ⚠️ REQUIRED: Update SHEET_ID below (line 14)
- * 📖 Full setup guide: docs/SETUP.md
- * 
- * @project TransacFlow
- * @repository https://github.com/alpha-gamma/transacflow
+ * ⚠️ REQUIRED: Update SHEET_ID below
+ * 📖 Setup guide: Extensions → Apps Script → Run setupAutomation()
  */
 
 // ==================== REQUIRED SETTINGS ====================
 
 /**
- * Your Google Sheet ID (from URL: docs.google.com/spreadsheets/d/SHEET_ID_HERE/edit)
+ * Your Google Sheet ID
+ * Find it in your sheet URL: docs.google.com/spreadsheets/d/SHEET_ID_HERE/edit
  */
-const SHEET_ID = 'YOUR_SHEET_ID_HERE'; // ⚠️ REQUIRED: Replace with your Sheet ID
+const SHEET_ID = 'YOUR_SHEET_ID_HERE';
 
 const SHEET_NAME = 'Transactions';
 const NICKNAMES_SHEET_NAME = 'Account Nicknames';
@@ -49,7 +47,7 @@ const MANUAL_SEARCH_QUERY = [
 // ==================== BEHAVIOR ====================
 
 const MARK_EMAILS_AS_READ = true;  // Mark processed emails as read
-const LOG_LEVEL = 'ERROR';         // 'DEBUG', 'INFO', or 'ERROR'
+const LOG_LEVEL = 'INFO';          // 'DEBUG', 'INFO', or 'ERROR' (use INFO to see dashboard updates)
 
 
 // ==================== CURRENCY ====================
@@ -84,6 +82,7 @@ const SHEET_HEADERS = [
   'Account/Card/UPI',
   'Account Name',
   'Merchant/Description',
+  'Category',
   'Source',
   'Email ID'
 ];
@@ -100,6 +99,27 @@ const HEADER_STYLE = {
 const SEND_ERROR_NOTIFICATIONS = false;   // Email on errors
 const SEND_SUMMARY_NOTIFICATIONS = false; // Email after each run
 const TIMEZONE = null;                    // null = auto, or 'Asia/Kolkata', etc.
+
+
+// ==================== DASHBOARD SETTINGS ====================
+
+/**
+ * Monthly budget targets (edit these to set your budget goals)
+ */
+const MONTHLY_BUDGETS = {
+  'Food & Dining': 10000,
+  'Transportation': 5000,
+  'Shopping': 15000,
+  'Groceries': 8000,
+  'Entertainment': 3000,
+  'Bills & Utilities': 5000,
+  'Other': 5000
+};
+
+/**
+ * Auto-update dashboard when new transactions are processed
+ */
+const AUTO_UPDATE_DASHBOARD = true;  // Set to false to disable auto-update
 
 
 // ==================== INTERNAL FUNCTIONS ====================

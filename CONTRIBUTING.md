@@ -38,7 +38,7 @@ We're building a free, open-source tool to help people automatically track their
 ### 🐛 Reporting Bugs
 
 **Before reporting:**
-- Check [existing issues](https://github.com/alpha-gamma/transacflow/issues)
+- Check [existing issues](https://github.com/yourusername/transacflow/issues)
 - Test with latest version
 - Try `debug_EmailSearch()` and `debug_ShowRawEmail()`
 
@@ -73,7 +73,7 @@ Paste relevant logs from Apps Script console.
 ### 💡 Suggesting Features
 
 **Before suggesting:**
-- Check [existing feature requests](https://github.com/alpha-gamma/transacflow/issues?q=label%3Aenhancement)
+- Check [existing feature requests](https://github.com/yourusername/transacflow/issues?q=label%3Aenhancement)
 - Consider if it fits the project scope (privacy-first, free, simple)
 
 **Feature request template:**
@@ -128,22 +128,24 @@ See sections below for setup and guidelines.
 **1. Fork & Clone**
 
 ```bash
-git clone https://github.com/alpha-gamma/transacflow.git
+git clone https://github.com/yourusername/transacflow.git
 cd transacflow
 ```
 
 **2. Create Test Environment**
 
-- Go to [script.google.com](https://script.google.com)
-- Create new project
-- Copy `Config.gs` and `Code.gs`
-- Create test Google Sheet
+- Create a new Google Sheet
+- Go to **Extensions → Apps Script**
+- Create `Config.gs` and paste code
+- Create `Code.gs` and paste code
+- Update `SHEET_ID` in Config.gs
 
 **3. Configure Test Setup**
 
-- Update `SHEET_ID` in Config.gs
+- Update `SHEET_ID` in Config.gs with your test sheet ID
 - Set `LOG_LEVEL = 'DEBUG'`
 - Run `setupAutomation()`
+- Refresh your sheet to see the TransacFlow menu
 
 ---
 
@@ -608,9 +610,9 @@ Reference issue number: `Fixes #123`
 
 **Where to ask:**
 
-- 💬 General questions: [GitHub Discussions](https://github.com/alpha-gamma/transacflow/discussions)
-- 🐛 Bug reports: [GitHub Issues](https://github.com/alpha-gamma/transacflow/issues)
-- 💡 Feature requests: [GitHub Issues](https://github.com/alpha-gamma/transacflow/issues) (label: enhancement)
+- 💬 General questions: [GitHub Discussions](https://github.com/yourusername/transacflow/discussions)
+- 🐛 Bug reports: [GitHub Issues](https://github.com/yourusername/transacflow/issues)
+- 💡 Feature requests: [GitHub Issues](https://github.com/yourusername/transacflow/issues) (label: enhancement)
 - 📧 Private: Open an issue (we'll take it private if needed)
 
 ---
@@ -647,7 +649,7 @@ git status
 git diff
 
 # Update your fork with upstream changes
-git remote add upstream https://github.com/alpha-gamma/transacflow.git
+git remote add upstream https://github.com/yourusername/transacflow.git
 git fetch upstream
 git merge upstream/main
 
