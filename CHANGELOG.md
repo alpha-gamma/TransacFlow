@@ -4,6 +4,62 @@ All notable changes to TransacFlow.
 
 ---
 
+## [1.2.0] - 2025-12-02
+
+### 📊 Analytics Dashboard Release
+
+**Major Feature:** Comprehensive analytics dashboard with spending insights!
+
+### ✨ New Features
+
+**Analytics Dashboard**
+- ✅ **Monthly Summary** - Total spent, transaction count, averages, highest transaction
+- ✅ **Top 5 Merchants** - Identify where you spend the most money
+- ✅ **Account-wise Spending** - Compare usage across all cards/UPI accounts
+- ✅ **Category Breakdown** - Auto-categorized spending analysis
+- ✅ **6-Month Trends** - Visual spending patterns with sparkline charts
+- ✅ **Budget vs Actual** - Set monthly budgets and track progress with color-coded status
+- ✅ Beautiful formatting with conditional formatting and visual indicators
+
+**Smart Categorization**
+- ✅ **Auto-categorization** engine with 10+ categories
+- ✅ Categories: Food & Dining, Transportation, Shopping, Groceries, Entertainment, Bills & Utilities, Health & Fitness, Education, Insurance, Investments, Transfer, Other
+- ✅ 100+ merchant keywords for accurate classification
+- ✅ `CategoryMapper` class with intelligent pattern matching
+- ✅ `addCategoriesToTransactions()` function to categorize existing data
+
+**New Functions**
+- ✅ `updateDashboard()` - Creates/refreshes comprehensive analytics dashboard
+- ✅ `addCategoriesToTransactions()` - Adds category column and categorizes all transactions
+- ✅ Auto-creates hidden "Category Data" sheet for data processing
+
+**Configuration**
+- ✅ `MONTHLY_BUDGETS` config in Config.gs for setting budget targets
+- ✅ `AUTO_UPDATE_DASHBOARD` option (optional auto-update after processing)
+- ✅ Customizable budget thresholds per category
+
+### 🎨 Visual Enhancements
+- ✅ Color-coded sections (green for categories, blue for headers)
+- ✅ Conditional formatting for budget status (green = under, red = over)
+- ✅ Sparkline charts for trend visualization
+- ✅ Professional dashboard layout with merged cells and borders
+- ✅ Auto-resizing columns for optimal viewing
+
+### 📈 Technical Improvements
+- ✅ `DashboardManager` class for modular dashboard creation
+- ✅ `CategoryMapper` class for intelligent categorization
+- ✅ Formula-based dynamic updates (no manual refresh needed for most metrics)
+- ✅ Efficient data processing with hidden sheets
+- ✅ Toast notifications for user feedback
+
+### 📖 Documentation Updates
+- ✅ README updated with Analytics Dashboard section
+- ✅ New function documentation in code headers
+- ✅ Updated version to 1.2.0
+- ✅ Enhanced feature comparison table
+
+---
+
 ## [1.0.0] - 2025-12-01
 
 ### 🎉 Initial Release
@@ -130,4 +186,4 @@ Potential enhancements for future versions:
 
 ---
 
-[1.0.0]: https://github.com/alpha-gamma/transacflow/releases/tag/v1.0.0
+[1.0.0]: https://github.com/yourusername/transacflow/releases/tag/v1.0.0

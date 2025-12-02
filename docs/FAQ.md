@@ -23,16 +23,22 @@ A: HDFC, Axis, ICICI, SBI, IndusInd, OneCard, Paytm, Google Pay, PhonePe.
 ## Setup
 
 **Q: How long to set up?**  
-A: 5 minutes. Copy 2 files, update Sheet ID, run setup.
+A: 5 minutes. Open Extensions → Apps Script, paste 2 files, update Sheet ID, run setup.
 
 **Q: Do I need coding skills?**  
-A: No. Just copy-paste and change one line (Sheet ID).
+A: No. Just copy-paste code and change one line (Sheet ID).
+
+**Q: What's a container-bound script?**  
+A: It's an Apps Script project linked directly to your Google Sheet. Enables custom menus and better integration.
 
 **Q: What permissions needed?**  
-A: Read Gmail + Read/Write Google Sheets. Standard permissions.
+A: Read Gmail + Read/Write Google Sheets. Standard permissions for your own account.
 
 **Q: Can I undo permissions?**  
 A: Yes. Google Account → Security → Third-party apps → Remove access.
+
+**Q: Where's the custom menu?**  
+A: After setup, refresh your sheet. You'll see **📊 TransacFlow** in the menu bar.
 
 ---
 
